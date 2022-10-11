@@ -13,6 +13,8 @@ import time
 
 import experience_replay
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 def save():
         torch.save({'state_dict': cnn.state_dict(),
                     'optimizer' : optimizer.state_dict(),
@@ -81,9 +83,9 @@ class CNN(nn.Module):
         return x.data.view(1, -1).size(1)
 
     def forward(self, x, hidden = None):
-        x = x.cuda()
+        x = x.to(device)
         if isinstance(hidden, tuple):
-            hidden = (hidden[0].cuda(), hidden[1].cuda())
+            hidden = (hidden[0].to(device), hidden[1].to(device))
         x = F.relu(F.max_pool2d(self.convolution1(x), 3, 2))
         x = F.relu(F.max_pool2d(self.convolution2(x), 3, 2))
         x = F.relu(F.max_pool2d(self.convolution3(x), 3, 2))
@@ -127,7 +129,7 @@ class AI:
 
 # Building an AI
 cnn = CNN(number_actions=5)
-cnn = cnn.to("cuda:0")
+cnn = cnn.to(device)
 softmax_body = SoftmaxBody(T = 1.0)
 ai = AI(brain = cnn, body = softmax_body)
 
@@ -196,5 +198,6 @@ for epoch in range(1, nb_epochs + 1):
         print("Congratulations, your AI wins")
         save()                
         break
+
 
 
