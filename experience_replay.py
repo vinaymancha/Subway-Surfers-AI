@@ -11,7 +11,7 @@ import time
 import torch
 from torch.autograd import Variable
 
-
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 def on_press(key):
     global r_
@@ -37,7 +37,7 @@ key_listener.start()
 
 
 # Defining one Step
-Step = namedtuple('Step', ['state', 'action', 'reward', 'done', 'lstm'])
+Step = namedtuple('Step', ['state', 'action','action_name', 'reward', 'done', 'lstm'])
 
 
 grayscale = True
@@ -53,8 +53,10 @@ def preprocess(img):
         img = np.transpose(img, (2, 0, 1))
         img = img.astype('float32') / 255.
         return img
-
+action_dict = {0: 'left', 1: 'right', 2: 'up', 3: 'down', 4: 'do_nothing'}
 def do_action(action):
+    action_name = action_dict[action]
+    print(f"Performing action: {action_name}")
     if(action == 0):
         pyautogui.mouseDown(x=390, y=318, button='left')
         pyautogui.mouseUp(x=140 , y=318)
@@ -72,8 +74,7 @@ def do_action(action):
         pyautogui.mouseUp(x=390 , y=568)
         pyautogui.moveTo(x=390, y=318)
     elif(action == 4):
-        time.sleep(0.3)    #do nothing
-    
+        time.sleep(0.3) #do nothing
 
 class NStepProgress:
     
@@ -83,9 +84,9 @@ class NStepProgress:
         self.n_step = n_step
     
     def __iter__(self):
-        pyautogui.click(x=498, y=575, clicks=1, button='left')  #resumes
+        pyautogui.click(x=327, y=308, clicks=1, button='left')  #resumes
         pyautogui.moveTo(x=390, y=318)
-        state = preprocess(pyautogui.screenshot(region =(0,0,800,630)))    #Screenshot of game
+        state = preprocess(pyautogui.screenshot(region =(0,0,628,485)))    #Screenshot of game
         
         history = deque()
         reward = 0.0
@@ -108,7 +109,7 @@ class NStepProgress:
                 cx = Variable(cx.data)
                 hx = Variable(hx.data)
             
-            action, (hx, cx) = self.ai(Variable(torch.from_numpy(np.array([state], dtype = np.float32))), (hx, cx))
+            action, _ = self.ai(Variable(torch.from_numpy(np.array([state], dtype = np.float32))), (hx, cx))
             action = action[0][0]
             print(action)
             la_actions.append(action)
@@ -123,9 +124,10 @@ class NStepProgress:
                 
             #action part
             do_action(action)
-            text = pytesseract.image_to_string(pyautogui.screenshot(region = (398,139,137,35)))   #recognizing text to end game 
+            text = pytesseract.image_to_string(pyautogui.screenshot(region = (334,111,96,31)))   #recognizing text to end game
+            print(text)
             
-            if "Score" in text:
+            if "core" in text:
                 is_done=True
                 if len(la_actions)>=3:
                     action = la_actions[-3]
@@ -153,10 +155,11 @@ class NStepProgress:
                 r=7
                 
                 
-            next_state = preprocess(pyautogui.screenshot(region =(0,0,800,630)))
+            next_state = preprocess(pyautogui.screenshot(region =(0,0,643,503)))
             
             reward += r
-            history.append(Step(state = state, action = action, reward = r, done = is_done, lstm = (hx, cx)))
+            action_name = action_dict[action]
+            history.append(Step(state = state, action = action, action_name=action_name, reward = r, done = is_done, lstm = (hx, cx)))
             while len(history) > self.n_step + 1:
                 history.popleft()
             if len(history) == self.n_step + 1:
@@ -170,9 +173,9 @@ class NStepProgress:
                     history.popleft()
                 self.rewards.append(reward)
                 reward = 0.0
-                pyautogui.click(x=498, y=575, clicks=1, button='left')  #resumes the game
-                pyautogui.moveTo(x=390, y=318)
-                state = preprocess(pyautogui.screenshot(region =(0,0,800,630)))
+                pyautogui.click(x=389, y=459, clicks=1, button='left')  #resumes the game
+                pyautogui.moveTo(x=449, y=318)
+                state = preprocess(pyautogui.screenshot(region =(0,0,643,503)))
                 la_actions=[]
                 la_states=[]
                 history.clear()
