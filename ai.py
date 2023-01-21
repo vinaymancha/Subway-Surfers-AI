@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import torchvision.models as models
 from torch.autograd import Variable
 import os
 import time
@@ -12,6 +13,10 @@ import time
 
 
 import experience_replay
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+hx = torch.empty(1, 256).to(device)
+cx = torch.empty(1, 256).to(device)
 
 def save():
         torch.save({'state_dict': cnn.state_dict(),
@@ -33,22 +38,10 @@ def load():
 
 
 # Initializing the weights of the neural network in an optimal way for the learning
-        
 def weights_init(m):
     classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        weight_shape = list(m.weight.data.size())
-        fan_in = np.prod(weight_shape[1:4])
-        fan_out = np.prod(weight_shape[2:4]) * weight_shape[0]
-        w_bound = np.sqrt(6. / (fan_in + fan_out))
-        m.weight.data.uniform_(-w_bound, w_bound)
-        m.bias.data.fill_(0)
-    elif classname.find('Linear') != -1:
-        weight_shape = list(m.weight.data.size())
-        fan_in = weight_shape[1]
-        fan_out = weight_shape[0]
-        w_bound = np.sqrt(6. / (fan_in + fan_out))
-        m.weight.data.uniform_(-w_bound, w_bound)
+    if classname.find('Linear') != -1:
+        nn.init.xavier_uniform_(m.weight)
         m.bias.data.fill_(0)
         
         
@@ -56,48 +49,28 @@ def weights_init(m):
 
 # Making the brain
 
+
+
 class CNN(nn.Module):
-    
     def __init__(self, number_actions):
         super(CNN, self).__init__()
-        self.convolution1 = nn.Conv2d(in_channels = 1, out_channels = 32, kernel_size = 5)
-        self.convolution2 = nn.Conv2d(in_channels = 32, out_channels = 32, kernel_size = 3)
-        self.convolution3 = nn.Conv2d(in_channels = 32, out_channels = 32, kernel_size = 3)
-        self.out_neurons = self.count_neurons((1, 128, 128))
-        self.lstm = nn.LSTMCell(self.out_neurons,256)
-        #self.fc1 = nn.Linear(in_features = self.count_neurons((1, 256, 256)), out_features = 62)
-        self.fc2 = nn.Linear(in_features = 256, out_features = number_actions)
+        
+        self.mobilenet = models.mobilenet_v2(pretrained=True)
+        
+        self.mobilenet = self.mobilenet.to(device)
+        self.mobilenet.features[0][0] = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1, bias=False)
+        self.fc2 = nn.Linear(in_features = 1000, out_features = number_actions)
         self.apply(weights_init)
         self.fc2.bias.data.fill_(0)
-        self.lstm.bias_ih.data.fill_(0)
-        self.lstm.bias_hh.data.fill_(0)
         self.train()
 
-    def count_neurons(self, image_dim):
-        x = Variable(torch.rand(1, *image_dim))
-        x = F.elu(F.max_pool2d(self.convolution1(x), 3, 2))
-        x = F.elu(F.max_pool2d(self.convolution2(x), 3, 2))
-        x = F.elu(F.max_pool2d(self.convolution3(x), 3, 2))
-        return x.data.view(1, -1).size(1)
-
     def forward(self, x, hidden = None):
-        x = x.cuda()
-        if isinstance(hidden, tuple):
-            hidden = (hidden[0].cuda(), hidden[1].cuda())
-        x = F.relu(F.max_pool2d(self.convolution1(x), 3, 2))
-        x = F.relu(F.max_pool2d(self.convolution2(x), 3, 2))
-        x = F.relu(F.max_pool2d(self.convolution3(x), 3, 2))
-        x = x.view(-1, self.out_neurons)
-        hx, cx = self.lstm(x, hidden)
-        x = hx
-        #x = F.relu(self.fc1(x))
+        x = x.to(device)
+        x = self.mobilenet(x)
         x = self.fc2(x)
-        return x, (hx, cx)
-
-# Making the body
+        return x, (hx,cx)
 
 class SoftmaxBody(nn.Module):
-    
     def __init__(self, T):
         super(SoftmaxBody, self).__init__()
         self.T = T
@@ -106,6 +79,7 @@ class SoftmaxBody(nn.Module):
         probs = F.softmax(outputs * self.T, dim=0)   
         actions = probs.multinomial(num_samples=1)
         return actions
+
 
 # Making the AI
 
@@ -127,7 +101,7 @@ class AI:
 
 # Building an AI
 cnn = CNN(number_actions=5)
-cnn = cnn.to("cuda:0")
+cnn = cnn.to(device)
 softmax_body = SoftmaxBody(T = 1.0)
 ai = AI(brain = cnn, body = softmax_body)
 
@@ -176,9 +150,10 @@ optimizer = optim.Adam(cnn.parameters(), lr = 0.0007)
 nb_epochs = 70
 #load()           ##To load previous weights
 for epoch in range(1, nb_epochs + 1):
+    memory.n_steps_iter = iter(memory.n_steps)
     memory.run_steps(100)
     print("Entering epoch")
-    for batch in memory.sample_batch(72):
+    for batch in memory.sample_batch(36):
         inputs, targets = eligibility_trace(batch)
         inputs, targets = Variable(inputs), Variable(targets)
         predictions, hidden = cnn(inputs, None)
@@ -196,5 +171,6 @@ for epoch in range(1, nb_epochs + 1):
         print("Congratulations, your AI wins")
         save()                
         break
+
 
 
